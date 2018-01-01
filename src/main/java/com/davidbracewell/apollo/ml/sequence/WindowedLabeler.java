@@ -1,11 +1,9 @@
 package com.davidbracewell.apollo.ml.sequence;
 
-import com.davidbracewell.apollo.ml.Encoder;
+import com.davidbracewell.apollo.linear.NDArray;
+import com.davidbracewell.apollo.linear.NDArrayFactory;
 import com.davidbracewell.apollo.ml.Feature;
-import com.davidbracewell.apollo.ml.FeatureVector;
-import com.davidbracewell.apollo.ml.LabelEncoder;
 import com.davidbracewell.apollo.ml.classification.Classifier;
-import com.davidbracewell.apollo.ml.preprocess.PreprocessorList;
 import lombok.NonNull;
 
 import java.util.Iterator;
@@ -18,27 +16,37 @@ import java.util.Iterator;
  */
 public class WindowedLabeler extends SequenceLabeler {
    private static final long serialVersionUID = 1L;
+   /**
+    * The Classifier.
+    */
    Classifier classifier;
+
 
    /**
     * Instantiates a new Model.
     *
-    * @param labelEncoder       the label encoder
-    * @param featureEncoder     the feature encoder
-    * @param preprocessors      the preprocessors
-    * @param transitionFeatures the transition features
-    * @param validator          the validator
+    * @param learner the learner
     */
-   public WindowedLabeler(@NonNull LabelEncoder labelEncoder, @NonNull Encoder featureEncoder, @NonNull PreprocessorList<Sequence> preprocessors, @NonNull TransitionFeatures transitionFeatures, @NonNull SequenceValidator validator) {
-      super(labelEncoder, featureEncoder, preprocessors, transitionFeatures, validator);
+   public WindowedLabeler(@NonNull WindowedLearner learner) {
+      super(learner);
       super.setDecoder(new WindowDecoder());
    }
 
    @Override
    public double[] estimate(Iterator<Feature> observation, Iterator<String> transitions) {
-      FeatureVector vector = new FeatureVector(classifier.getEncoderPair());
-      observation.forEachRemaining(vector::set);
-      transitions.forEachRemaining(t -> vector.set(t, 1.0));
+      NDArray vector = NDArrayFactory.SPARSE_DOUBLE.zeros(numberOfFeatures());
+      observation.forEachRemaining(f -> {
+         int index = (int) encodeFeature(f.getFeatureName());
+         if (index >= 0) {
+            vector.set(index, f.getValue());
+         }
+      });
+      transitions.forEachRemaining(t -> {
+         int index = (int) encodeFeature(t);
+         if (index >= 0) {
+            vector.set(index, 1.0d);
+         }
+      });
       return classifier.classify(vector).distribution();
    }
 

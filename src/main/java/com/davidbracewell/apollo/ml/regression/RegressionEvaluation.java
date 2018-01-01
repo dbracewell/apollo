@@ -1,7 +1,7 @@
 package com.davidbracewell.apollo.ml.regression;
 
+import com.davidbracewell.Math2;
 import com.davidbracewell.apollo.ml.Evaluation;
-import com.davidbracewell.apollo.ml.FeatureVector;
 import com.davidbracewell.apollo.ml.Instance;
 import com.davidbracewell.apollo.ml.data.Dataset;
 import com.davidbracewell.conversion.Cast;
@@ -13,7 +13,6 @@ import org.apache.mahout.math.list.DoubleArrayList;
 import java.io.PrintStream;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.stream.DoubleStream;
 
 /**
  * <p>Evaluation for regression models.</p>
@@ -25,67 +24,6 @@ public class RegressionEvaluation implements Evaluation<Instance, Regression> {
    private DoubleArrayList predicted = new DoubleArrayList();
    private double p = 0;
 
-
-   @Override
-   public void evaluate(@NonNull Regression model, @NonNull Dataset<Instance> dataset) {
-      for (Instance ii : dataset) {
-         FeatureVector fv = ii.toVector(model.getEncoderPair());
-         gold.add(fv.getLabel());
-         predicted.add(model.estimate(fv));
-      }
-      p = model.numberOfFeatures();
-   }
-
-   @Override
-   public void evaluate(@NonNull Regression model, @NonNull Collection<Instance> dataset) {
-      for (Instance ii : dataset) {
-         FeatureVector fv = ii.toVector(model.getEncoderPair());
-         gold.add(fv.getLabel());
-         predicted.add(model.estimate(fv));
-      }
-      p = model.numberOfFeatures();
-   }
-
-   @Override
-   public void merge(@NonNull Evaluation<Instance, Regression> evaluation) {
-      Preconditions.checkArgument(evaluation instanceof RegressionEvaluation);
-      RegressionEvaluation re = Cast.as(evaluation);
-      gold.addAllOf(re.gold);
-      predicted.addAllOf(re.predicted);
-   }
-
-   /**
-    * Calculates the squared error
-    *
-    * @return the squared error
-    */
-   public double squaredError() {
-      double error = 0;
-      for (int i = 0; i < gold.size(); i++) {
-         error += Math.pow(predicted.get(i) - gold.get(i), 2);
-      }
-      return error;
-   }
-
-
-   /**
-    * Calculates the mean squared error
-    *
-    * @return the mean squared error
-    */
-   public double meanSquaredError() {
-      return squaredError() / gold.size();
-   }
-
-   /**
-    * Calculates the root mean squared error
-    *
-    * @return the root mean squared error
-    */
-   public double rootMeanSquaredError() {
-      return Math.sqrt(meanSquaredError());
-   }
-
    /**
     * Calculates the adjusted r2
     *
@@ -94,21 +32,6 @@ public class RegressionEvaluation implements Evaluation<Instance, Regression> {
    public double adjustedR2() {
       double r2 = r2();
       return r2 - (1.0 - r2) * p / (gold.size() - p - 1.0);
-   }
-
-   /**
-    * Calculates the r2
-    *
-    * @return the r2
-    */
-   public double r2() {
-      double yMean = DoubleStream.of(gold.elements()).parallel().sum() / gold.size();
-      double SStot = DoubleStream.of(gold.elements()).parallel().map(d -> Math.pow(d - yMean, 2)).sum();
-      double SSres = 0;
-      for (int i = 0; i < gold.size(); i++) {
-         SSres += Math.pow(gold.get(i) - predicted.get(i), 2);
-      }
-      return 1.0 - SSres / SStot;
    }
 
    /**
@@ -122,13 +45,39 @@ public class RegressionEvaluation implements Evaluation<Instance, Regression> {
       this.predicted.add(predicted);
    }
 
+   @Override
+   public void evaluate(@NonNull Regression model, @NonNull Dataset<Instance> dataset) {
+      for (Instance ii : dataset) {
+         gold.add(model.getLabelEncoder().encode(ii.getLabel()));
+         predicted.add(model.estimate(ii));
+      }
+      p = model.numberOfFeatures();
+   }
+
+   @Override
+   public void evaluate(@NonNull Regression model, @NonNull Collection<Instance> dataset) {
+      for (Instance ii : dataset) {
+         gold.add(model.getLabelEncoder().encode(ii.getLabel()));
+         predicted.add(model.estimate(ii));
+      }
+      p = model.numberOfFeatures();
+   }
+
    /**
-    * Sets the total number of predictor variables (i.e. features)
+    * Calculates the mean squared error
     *
-    * @param p the number of predictor variables
+    * @return the mean squared error
     */
-   public void setP(double p) {
-      this.p = p;
+   public double meanSquaredError() {
+      return squaredError() / gold.size();
+   }
+
+   @Override
+   public void merge(@NonNull Evaluation<Instance, Regression> evaluation) {
+      Preconditions.checkArgument(evaluation instanceof RegressionEvaluation);
+      RegressionEvaluation re = Cast.as(evaluation);
+      gold.addAllOf(re.gold);
+      predicted.addAllOf(re.predicted);
    }
 
    @Override
@@ -140,6 +89,52 @@ public class RegressionEvaluation implements Evaluation<Instance, Regression> {
       formatter.content(Arrays.asList("R^2", r2()));
       formatter.content(Arrays.asList("Adj. R^2", adjustedR2()));
       formatter.print(printStream);
+   }
+
+   /**
+    * Calculates the r2
+    *
+    * @return the r2
+    */
+   public double r2() {
+      double yMean = Math2.sum(gold.elements()) / gold.size();
+      double SStot = Arrays.stream(gold.elements()).map(d -> Math.pow(d - yMean, 2)).sum();
+      double SSres = 0;
+      for (int i = 0; i < gold.size(); i++) {
+         SSres += Math.pow(gold.get(i) - predicted.get(i), 2);
+      }
+      return 1.0 - SSres / SStot;
+   }
+
+   /**
+    * Calculates the root mean squared error
+    *
+    * @return the root mean squared error
+    */
+   public double rootMeanSquaredError() {
+      return Math.sqrt(meanSquaredError());
+   }
+
+   /**
+    * Sets the total number of predictor variables (i.e. features)
+    *
+    * @param p the number of predictor variables
+    */
+   public void setP(double p) {
+      this.p = p;
+   }
+
+   /**
+    * Calculates the squared error
+    *
+    * @return the squared error
+    */
+   public double squaredError() {
+      double error = 0;
+      for (int i = 0; i < gold.size(); i++) {
+         error += Math.pow(predicted.get(i) - gold.get(i), 2);
+      }
+      return error;
    }
 
 }// END OF RegressionEvaluation

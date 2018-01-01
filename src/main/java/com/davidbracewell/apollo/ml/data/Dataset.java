@@ -22,7 +22,12 @@
 package com.davidbracewell.apollo.ml.data;
 
 import com.davidbracewell.Copyable;
-import com.davidbracewell.apollo.ml.*;
+import com.davidbracewell.apollo.linear.NDArray;
+import com.davidbracewell.apollo.ml.Example;
+import com.davidbracewell.apollo.ml.Instance;
+import com.davidbracewell.apollo.ml.TrainTestSet;
+import com.davidbracewell.apollo.ml.TrainTestSplit;
+import com.davidbracewell.apollo.ml.encoder.*;
 import com.davidbracewell.apollo.ml.preprocess.Preprocessor;
 import com.davidbracewell.apollo.ml.preprocess.PreprocessorList;
 import com.davidbracewell.apollo.ml.sequence.Sequence;
@@ -30,11 +35,12 @@ import com.davidbracewell.collection.counter.Counter;
 import com.davidbracewell.conversion.Cast;
 import com.davidbracewell.function.SerializableFunction;
 import com.davidbracewell.function.SerializablePredicate;
+import com.davidbracewell.function.SerializableSupplier;
 import com.davidbracewell.guava.common.base.Preconditions;
 import com.davidbracewell.io.resource.Resource;
-import com.davidbracewell.io.structured.ElementType;
-import com.davidbracewell.io.structured.json.JSONReader;
-import com.davidbracewell.io.structured.json.JSONWriter;
+import com.davidbracewell.json.JsonReader;
+import com.davidbracewell.json.JsonTokenType;
+import com.davidbracewell.json.JsonWriter;
 import com.davidbracewell.logging.Logger;
 import com.davidbracewell.stream.MStream;
 import com.davidbracewell.stream.StreamingContext;
@@ -98,15 +104,6 @@ public abstract class Dataset<T extends Example> implements Iterable<T>, Copyabl
    }
 
    /**
-    * Caches the computations performed on the dataset.
-    *
-    * @return A cached version of the dataset
-    */
-   public Dataset<T> cache() {
-      return this;
-   }
-
-   /**
     * Creates a dataset builder with a <code>RealEncoder</code> for the class labels as is required for regression
     * problems.
     *
@@ -153,13 +150,46 @@ public abstract class Dataset<T extends Example> implements Iterable<T>, Copyabl
    }
 
    /**
-    * Creates a stream of {@link FeatureVector} from the examples in the dataset
+    * Creates a stream of {@link com.davidbracewell.apollo.linear.NDArray} from the examples in the dataset
     *
     * @return the stream of FeatureVectors
     */
-   public MStream<FeatureVector> asFeatureVectors() {
+   public MStream<NDArray> asVectors() {
       encode();
-      return stream().parallel().flatMap(e -> e.asInstances().stream().map(ii -> ii.toVector(encoders)));
+      return stream().parallel()
+                     .flatMap(ii -> ii.asInstances().stream())
+                     .map(ii -> ii.toVector(encoders));
+   }
+
+   /**
+    * Creates a stream of {@link NDArray} from the examples in the dataset with the label set to <code>true (1.0)</code>
+    * when the actual label matches the given <code>trueLabel</code>
+    *
+    * @param trueLabel The label to match for a binary true
+    * @return The stream of vectors
+    */
+   public MStream<NDArray> asVectors(double trueLabel) {
+      encode();
+      return stream().parallel()
+                     .flatMap(ii -> ii.asInstances().stream())
+                     .map(ii -> {
+                        NDArray v = ii.toVector(encoders);
+                        if (v.getLabelAsDouble() == trueLabel) {
+                           v.setLabel(1d);
+                        } else {
+                           v.setLabel(0d);
+                        }
+                        return v;
+                     });
+   }
+
+   /**
+    * Caches the computations performed on the dataset.
+    *
+    * @return A cached version of the dataset
+    */
+   public Dataset<T> cache() {
+      return this;
    }
 
    @Override
@@ -238,17 +268,20 @@ public abstract class Dataset<T extends Example> implements Iterable<T>, Copyabl
       for (int i = 0; i < numberOfFolds; i++) {
          Dataset<T> train = create(getStreamingContext().empty());
          Dataset<T> test = create(getStreamingContext().empty());
-         if (i == 0) {
-            test.addAll(stream(0, foldSize));
-            train.addAll(stream(foldSize, size()));
-         } else if (i == numberOfFolds - 1) {
-            test.addAll(stream(size() - foldSize, size()));
-            train.addAll(stream(0, size() - foldSize));
-         } else {
-            test.addAll(stream(0, foldSize * i));
-            test.addAll(stream(foldSize * i + foldSize, size()));
-            train.addAll(stream(foldSize * i, foldSize * i + foldSize));
+
+         int testStart = i * foldSize;
+         int testEnd = testStart + foldSize;
+
+         test.addAll(stream(testStart, testEnd));
+
+         if (testStart > 0) {
+            train.addAll(stream(0, testStart));
          }
+
+         if (testEnd < size()) {
+            train.addAll(stream(testEnd, size()));
+         }
+
          folds.add(TrainTestSplit.of(train, test));
       }
       return folds;
@@ -383,13 +416,13 @@ public abstract class Dataset<T extends Example> implements Iterable<T>, Copyabl
     * @throws IOException Something went wrong reading.
     */
    Dataset<T> read(@NonNull Resource resource, Class<T> exampleType) throws IOException {
-      try (JSONReader reader = new JSONReader(resource)) {
+      try (JsonReader reader = new JsonReader(resource)) {
          reader.beginDocument();
          List<T> batch = new LinkedList<>();
          preprocessors.clear();
          preprocessors.addAll(Cast.as(reader.nextKeyValue(PreprocessorList.class).v2));
          reader.beginArray("data");
-         while (reader.peek() != ElementType.END_ARRAY) {
+         while (reader.peek() != JsonTokenType.END_ARRAY) {
             batch.add(reader.nextValue(exampleType));
             if (batch.size() > 1000) {
                addAll(batch);
@@ -513,6 +546,40 @@ public abstract class Dataset<T extends Example> implements Iterable<T>, Copyabl
       return dataset;
    }
 
+   public SerializableSupplier<MStream<NDArray>> vectorStream(boolean cacheData) {
+      final MStream<NDArray> mStream;
+      if (cacheData) {
+         mStream = asVectors().cache();
+      } else {
+         mStream = null;
+      }
+
+      SerializableSupplier<MStream<NDArray>> dataSupplier;
+      if (mStream != null) {
+         dataSupplier = () -> mStream;
+      } else {
+         dataSupplier = this::asVectors;
+      }
+      return dataSupplier;
+   }
+
+   public SerializableSupplier<MStream<NDArray>> vectorStream(boolean cacheData, double trueLabel) {
+      final MStream<NDArray> mStream;
+      if (cacheData) {
+         mStream = asVectors(trueLabel).cache();
+      } else {
+         mStream = null;
+      }
+
+      SerializableSupplier<MStream<NDArray>> dataSupplier;
+      if (mStream != null) {
+         dataSupplier = () -> mStream;
+      } else {
+         dataSupplier = () -> asVectors(trueLabel);
+      }
+      return dataSupplier;
+   }
+
    /**
     * Writes the dataset to the given resource in JSON format.
     *
@@ -520,14 +587,10 @@ public abstract class Dataset<T extends Example> implements Iterable<T>, Copyabl
     * @throws IOException Something went wrong writing the dataset
     */
    public void write(@NonNull Resource resource) throws IOException {
-      try (JSONWriter writer = new JSONWriter(resource)) {
+      try (JsonWriter writer = new JsonWriter(resource)) {
          writer.beginDocument();
-         writer.writeKeyValue("preprocessors", preprocessors);
-         writer.beginArray("data");
-         for (T instance : this) {
-            writer.writeValue(instance);
-         }
-         writer.endArray();
+         writer.property("preprocessors", preprocessors);
+         writer.property("data", this);
          writer.endDocument();
       }
    }

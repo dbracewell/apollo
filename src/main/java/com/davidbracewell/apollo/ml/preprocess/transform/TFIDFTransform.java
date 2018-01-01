@@ -6,9 +6,9 @@ import com.davidbracewell.apollo.ml.preprocess.RestrictedInstancePreprocessor;
 import com.davidbracewell.collection.counter.Counter;
 import com.davidbracewell.collection.counter.Counters;
 import com.davidbracewell.conversion.Val;
-import com.davidbracewell.io.structured.ElementType;
-import com.davidbracewell.io.structured.StructuredReader;
-import com.davidbracewell.io.structured.StructuredWriter;
+import com.davidbracewell.json.JsonReader;
+import com.davidbracewell.json.JsonTokenType;
+import com.davidbracewell.json.JsonWriter;
 import com.davidbracewell.stream.MStream;
 import com.davidbracewell.stream.accumulator.MDoubleAccumulator;
 import com.davidbracewell.string.StringUtils;
@@ -49,39 +49,6 @@ public class TFIDFTransform extends RestrictedInstancePreprocessor implements Tr
       super(featureNamePrefix);
    }
 
-
-   @Override
-   protected Stream<Feature> restrictedProcessImpl(Stream<Feature> featureStream, Instance originalExample) {
-      double dSum = originalExample.getFeatures().stream().mapToDouble(Feature::getValue).sum();
-      return featureStream.map(f -> {
-                                  double value = f.getValue() / dSum * Math.log(totalDocs / documentFrequencies.get(f.getName()));
-                                  if (value != 0) {
-                                     return Feature.real(f.getName(), value);
-                                  }
-                                  return null;
-                               }
-                              )
-                          .filter(Objects::nonNull);
-   }
-
-   @Override
-   protected void restrictedFitImpl(MStream<List<Feature>> stream) {
-      MDoubleAccumulator docCount = stream.getContext().doubleAccumulator(0d);
-      this.documentFrequencies.merge(stream.flatMap(instance -> {
-                                                       docCount.add(1d);
-                                                       return instance.stream().map(Feature::getName).distinct();
-                                                    }
-                                                   ).countByValue()
-                                    );
-      this.totalDocs = docCount.value();
-   }
-
-   @Override
-   public void reset() {
-      totalDocs = 0;
-      documentFrequencies.clear();
-   }
-
    @Override
    public String describe() {
       if (applyToAll()) {
@@ -92,22 +59,9 @@ public class TFIDFTransform extends RestrictedInstancePreprocessor implements Tr
    }
 
    @Override
-   public void write(@NonNull StructuredWriter writer) throws IOException {
-      if (!applyToAll()) {
-         writer.writeKeyValue("restriction", getRestriction());
-      }
-      writer.writeKeyValue("totalDocuments", totalDocs);
-      writer.beginObject("documentCounts");
-      for (Map.Entry<String, Double> entry : documentFrequencies.entries()) {
-         writer.writeKeyValue(entry.getKey(), entry.getValue());
-      }
-      writer.endObject();
-   }
-
-   @Override
-   public void read(@NonNull StructuredReader reader) throws IOException {
+   public void fromJson(@NonNull JsonReader reader) throws IOException {
       reset();
-      while (reader.peek() != ElementType.END_OBJECT) {
+      while (reader.peek() != JsonTokenType.END_OBJECT) {
          switch (reader.peekName()) {
             case "restriction":
                setRestriction(reader.nextKeyValue().v2.asString());
@@ -117,7 +71,7 @@ public class TFIDFTransform extends RestrictedInstancePreprocessor implements Tr
                break;
             case "documentCounts":
                reader.beginObject();
-               while (reader.peek() != ElementType.END_OBJECT) {
+               while (reader.peek() != JsonTokenType.END_OBJECT) {
                   Tuple2<String, Val> kv = reader.nextKeyValue();
                   documentFrequencies.set(kv.getKey(), kv.getValue().asDoubleValue());
                }
@@ -125,5 +79,50 @@ public class TFIDFTransform extends RestrictedInstancePreprocessor implements Tr
                break;
          }
       }
+   }
+
+   @Override
+   public void reset() {
+      totalDocs = 0;
+      documentFrequencies.clear();
+   }
+
+   @Override
+   protected void restrictedFitImpl(MStream<List<Feature>> stream) {
+      MDoubleAccumulator docCount = stream.getContext().doubleAccumulator(0d);
+      this.documentFrequencies.merge(stream.flatMap(instance -> {
+                                                       docCount.add(1d);
+                                                       return instance.stream().map(Feature::getFeatureName).distinct();
+                                                    }
+                                                   ).countByValue()
+                                    );
+      this.totalDocs = docCount.value();
+   }
+
+   @Override
+   protected Stream<Feature> restrictedProcessImpl(Stream<Feature> featureStream, Instance originalExample) {
+      double dSum = originalExample.getFeatures().stream().mapToDouble(Feature::getValue).sum();
+      return featureStream.map(f -> {
+                                  double value = f.getValue() / dSum * Math.log(totalDocs / documentFrequencies.get(f.getFeatureName()));
+                                  if (value != 0) {
+                                     return Feature.real(f.getFeatureName(), value);
+                                  }
+                                  return null;
+                               }
+                              )
+                          .filter(Objects::nonNull);
+   }
+
+   @Override
+   public void toJson(@NonNull JsonWriter writer) throws IOException {
+      if (!applyToAll()) {
+         writer.property("restriction", getRestriction());
+      }
+      writer.property("totalDocuments", totalDocs);
+      writer.beginObject("documentCounts");
+      for (Map.Entry<String, Double> entry : documentFrequencies.entries()) {
+         writer.property(entry.getKey(), entry.getValue());
+      }
+      writer.endObject();
    }
 }// END OF TFIDFTransform

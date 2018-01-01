@@ -46,7 +46,22 @@ public class CRFTrainer extends SequenceLabelerLearner {
    private double c2 = 1.0;
 
    @Override
+   public void resetLearnerParameters() {
+
+   }
+
+   /**
+    * Sets the type of solver to use for optimization.
+    *
+    * @param solver the solver
+    */
+   public void setSolver(@NonNull Solver solver) {
+      this.solver = solver;
+   }
+
+   @Override
    protected SequenceLabeler trainImpl(Dataset<Sequence> dataset) {
+      setTransitionFeatures(TransitionFeature.NO_OPT);
       LibraryLoader.INSTANCE.load();
       Trainer trainer = new Trainer();
       dataset.forEach(sequence -> {
@@ -54,7 +69,7 @@ public class CRFTrainer extends SequenceLabelerLearner {
          StringList labels = new StringList();
          for (Instance instance : sequence.asInstances()) {
             Item item = new Item();
-            instance.forEach(f -> item.add(new Attribute(f.getName(), f.getValue())));
+            instance.forEach(f -> item.add(new Attribute(f.getFeatureName(), f.getValue())));
             labels.add(instance.getLabel().toString());
             seq.add(item);
          }
@@ -66,29 +81,7 @@ public class CRFTrainer extends SequenceLabelerLearner {
       String tempFile = Resources.temporaryFile().asFile().get().getAbsolutePath();
       trainer.train(tempFile, -1);
       trainer.clear();
-      return new CRFTagger(
-                             dataset.getLabelEncoder(),
-                             dataset.getFeatureEncoder(),
-                             dataset.getPreprocessors(),
-                             TransitionFeatures.FIRST_ORDER,
-                             tempFile,
-                             getValidator()
-      );
-   }
-
-   @Override
-   public void reset() {
-
-   }
-
-
-   /**
-    * Sets the type of solver to use for optimization.
-    *
-    * @param solver the solver
-    */
-   public void setSolver(@NonNull Solver solver) {
-      this.solver = solver;
+      return new CRFTagger(this, tempFile);
    }
 
 }// END OF CRFTrainer

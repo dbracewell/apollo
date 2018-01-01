@@ -3,9 +3,9 @@ package com.davidbracewell.apollo.ml.preprocess.transform;
 import com.davidbracewell.apollo.ml.Feature;
 import com.davidbracewell.apollo.ml.Instance;
 import com.davidbracewell.apollo.ml.preprocess.RestrictedInstancePreprocessor;
-import com.davidbracewell.io.structured.ElementType;
-import com.davidbracewell.io.structured.StructuredReader;
-import com.davidbracewell.io.structured.StructuredWriter;
+import com.davidbracewell.json.JsonReader;
+import com.davidbracewell.json.JsonTokenType;
+import com.davidbracewell.json.JsonWriter;
 import com.davidbracewell.stream.MStream;
 import com.davidbracewell.string.StringUtils;
 import lombok.NonNull;
@@ -50,11 +50,6 @@ public class RealToBinaryTransform extends RestrictedInstancePreprocessor implem
       this(StringUtils.EMPTY, 0);
    }
 
-
-   @Override
-   public void reset() {
-   }
-
    @Override
    public String describe() {
       if (applyToAll()) {
@@ -64,33 +59,9 @@ public class RealToBinaryTransform extends RestrictedInstancePreprocessor implem
    }
 
    @Override
-   protected void restrictedFitImpl(MStream<List<Feature>> stream) {
-
-   }
-
-   @Override
-   public boolean requiresFit() {
-      return false;
-   }
-
-   @Override
-   protected Stream<Feature> restrictedProcessImpl(Stream<Feature> featureStream, Instance originalExample) {
-      return featureStream.filter(f -> f.getValue() >= threshold).map(feature -> Feature.TRUE(feature.getName()));
-   }
-
-
-   @Override
-   public void write(@NonNull StructuredWriter writer) throws IOException {
-      if (!applyToAll()) {
-         writer.writeKeyValue("restriction", getRestriction());
-      }
-      writer.writeKeyValue("threshold", threshold);
-   }
-
-   @Override
-   public void read(@NonNull StructuredReader reader) throws IOException {
+   public void fromJson(@NonNull JsonReader reader) throws IOException {
       reset();
-      while (reader.peek() != ElementType.END_OBJECT) {
+      while (reader.peek() != JsonTokenType.END_OBJECT) {
          switch (reader.peekName()) {
             case "restriction":
                setRestriction(reader.nextKeyValue().v2.asString());
@@ -100,6 +71,34 @@ public class RealToBinaryTransform extends RestrictedInstancePreprocessor implem
                break;
          }
       }
+   }
+
+   @Override
+   public boolean requiresFit() {
+      return false;
+   }
+
+   @Override
+   public void reset() {
+   }
+
+   @Override
+   protected void restrictedFitImpl(MStream<List<Feature>> stream) {
+
+   }
+
+   @Override
+   protected Stream<Feature> restrictedProcessImpl(Stream<Feature> featureStream, Instance originalExample) {
+      return featureStream.filter(f -> f.getValue() >= threshold).map(
+         feature -> Feature.TRUE(feature.getFeatureName()));
+   }
+
+   @Override
+   public void toJson(@NonNull JsonWriter writer) throws IOException {
+      if (!applyToAll()) {
+         writer.property("restriction", getRestriction());
+      }
+      writer.property("threshold", threshold);
    }
 
 }// END OF RealToBinaryTransform

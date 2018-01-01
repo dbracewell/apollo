@@ -4,9 +4,9 @@ import com.davidbracewell.EnhancedDoubleStatistics;
 import com.davidbracewell.apollo.ml.Feature;
 import com.davidbracewell.apollo.ml.Instance;
 import com.davidbracewell.apollo.ml.preprocess.RestrictedInstancePreprocessor;
-import com.davidbracewell.io.structured.ElementType;
-import com.davidbracewell.io.structured.StructuredReader;
-import com.davidbracewell.io.structured.StructuredWriter;
+import com.davidbracewell.json.JsonReader;
+import com.davidbracewell.json.JsonTokenType;
+import com.davidbracewell.json.JsonWriter;
 import com.davidbracewell.stream.MStream;
 import com.davidbracewell.stream.accumulator.MStatisticsAccumulator;
 import com.davidbracewell.string.StringUtils;
@@ -45,11 +45,36 @@ public class ZScoreTransform extends RestrictedInstancePreprocessor implements T
    }
 
    @Override
-   protected Stream<Feature> restrictedProcessImpl(Stream<Feature> featureStream, Instance originalExample) {
-      return featureStream.map(feature -> Feature.real(feature.getName(),
-                                                       (feature.getValue() - mean) / standardDeviation));
+   public String describe() {
+      if (applyToAll()) {
+         return "ZScoreTransform{mean=" + mean + ", std=" + standardDeviation + "}";
+      }
+      return "ZScoreTransform[" + getRestriction() + "]{mean=" + mean + ", std=" + standardDeviation + "}";
    }
 
+   @Override
+   public void fromJson(@NonNull JsonReader reader) throws IOException {
+      reset();
+      while (reader.peek() != JsonTokenType.END_OBJECT) {
+         switch (reader.peekName()) {
+            case "restriction":
+               setRestriction(reader.nextKeyValue().v2.asString());
+               break;
+            case "mean":
+               this.mean = reader.nextKeyValue().v2.asDoubleValue();
+               break;
+            case "stddev":
+               this.standardDeviation = reader.nextKeyValue().v2.asDoubleValue();
+               break;
+         }
+      }
+   }
+
+   @Override
+   public void reset() {
+      this.mean = 0;
+      this.standardDeviation = 0;
+   }
 
    @Override
    protected void restrictedFitImpl(MStream<List<Feature>> stream) {
@@ -64,44 +89,18 @@ public class ZScoreTransform extends RestrictedInstancePreprocessor implements T
    }
 
    @Override
-   public void reset() {
-      this.mean = 0;
-      this.standardDeviation = 0;
+   protected Stream<Feature> restrictedProcessImpl(Stream<Feature> featureStream, Instance originalExample) {
+      return featureStream.map(feature -> Feature.real(feature.getFeatureName(),
+                                                       (feature.getValue() - mean) / standardDeviation));
    }
 
    @Override
-   public String describe() {
-      if (applyToAll()) {
-         return "ZScoreTransform{mean=" + mean + ", std=" + standardDeviation + "}";
-      }
-      return "ZScoreTransform[" + getRestriction() + "]{mean=" + mean + ", std=" + standardDeviation + "}";
-   }
-
-   @Override
-   public void write(@NonNull StructuredWriter writer) throws IOException {
+   public void toJson(@NonNull JsonWriter writer) throws IOException {
       if (!applyToAll()) {
-         writer.writeKeyValue("restriction", getRestriction());
+         writer.property("restriction", getRestriction());
       }
-      writer.writeKeyValue("mean", mean);
-      writer.writeKeyValue("stddev", standardDeviation);
-   }
-
-   @Override
-   public void read(@NonNull StructuredReader reader) throws IOException {
-      reset();
-      while (reader.peek() != ElementType.END_OBJECT) {
-         switch (reader.peekName()) {
-            case "restriction":
-               setRestriction(reader.nextKeyValue().v2.asString());
-               break;
-            case "mean":
-               this.mean = reader.nextKeyValue().v2.asDoubleValue();
-               break;
-            case "stddev":
-               this.standardDeviation = reader.nextKeyValue().v2.asDoubleValue();
-               break;
-         }
-      }
+      writer.property("mean", mean);
+      writer.property("stddev", standardDeviation);
    }
 
 }// END OF ZScoreTransform

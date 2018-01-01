@@ -21,15 +21,14 @@
 
 package com.davidbracewell.apollo.ml.classification;
 
-import com.davidbracewell.apollo.linalg.Vector;
-import com.davidbracewell.apollo.ml.EncoderPair;
-import com.davidbracewell.apollo.ml.IndexEncoder;
+import com.davidbracewell.apollo.linear.NDArray;
 import com.davidbracewell.apollo.ml.Instance;
 import com.davidbracewell.apollo.ml.Model;
+import com.davidbracewell.apollo.ml.encoder.EncoderPair;
 import com.davidbracewell.apollo.ml.preprocess.PreprocessorList;
 import com.davidbracewell.collection.counter.Counter;
 import com.davidbracewell.collection.counter.MultiCounter;
-import com.davidbracewell.guava.common.base.Preconditions;
+import lombok.Getter;
 import lombok.NonNull;
 
 /**
@@ -39,22 +38,19 @@ import lombok.NonNull;
  */
 public abstract class Classifier implements Model {
    private static final long serialVersionUID = 1L;
+   @Getter
    private final PreprocessorList<Instance> preprocessors;
-   private EncoderPair encoderPair;
+   private final EncoderPair encoderPair;
 
-   /**
-    * Instantiates a new Classifier.
-    *
-    * @param encoderPair   the pair of encoders to convert feature names into int/double values
-    * @param preprocessors the preprocessors that the classifier will need apply at runtime
-    */
-   protected Classifier(@NonNull EncoderPair encoderPair, @NonNull PreprocessorList<Instance> preprocessors) {
-      this.encoderPair = encoderPair;
-      Preconditions.checkArgument(encoderPair.getLabelEncoder() instanceof IndexEncoder,
-                                  "Classifiers only allow IndexEncoders for labels.");
-      this.preprocessors = preprocessors.getModelProcessors();
+   protected Classifier(@NonNull ClassifierLearner learner) {
+      this.preprocessors = learner.getPreprocessors().getModelProcessors();
+      this.encoderPair = learner.getEncoderPair();
    }
 
+   protected Classifier(@NonNull PreprocessorList<Instance> preprocessors, EncoderPair encoderPair){
+      this.preprocessors = preprocessors.getModelProcessors();
+      this.encoderPair = encoderPair;
+   }
 
    /**
     * Predicts the label, or class, of the given instance
@@ -63,7 +59,7 @@ public abstract class Classifier implements Model {
     * @return the classification result
     */
    public Classification classify(@NonNull Instance instance) {
-      return classify(preprocessors.apply(instance).toVector(getEncoderPair()));
+      return classify(preprocessors.apply(instance).toVector(encoderPair));
    }
 
    /**
@@ -73,16 +69,7 @@ public abstract class Classifier implements Model {
     * @param vector the vector whose class we want to predict
     * @return the classification result
     */
-   public abstract Classification classify(Vector vector);
-
-   /**
-    * Gets the parameters of the model. Typically these will be Feature-Class-Weight triplets.
-    *
-    * @return the model parameters
-    */
-   public MultiCounter<String, String> getModelParameters() {
-      throw new UnsupportedOperationException();
-   }
+   public abstract Classification classify(NDArray vector);
 
    /**
     * Convenience method for creating classification results.
@@ -104,6 +91,24 @@ public abstract class Classifier implements Model {
    @Override
    public EncoderPair getEncoderPair() {
       return encoderPair;
+   }
+
+   /**
+    * Gets the parameters of the model. Typically these will be Feature-Class-Weight triplets.
+    *
+    * @return the model parameters
+    */
+   public MultiCounter<String, String> getModelParameters() {
+      throw new UnsupportedOperationException();
+   }
+
+   @Override
+   public int numberOfFeatures() {
+      return encoderPair.numberOfFeatures();
+   }
+
+   protected Instance preprocess(Instance instance) {
+      return preprocessors.apply(instance);
    }
 
 }//END OF Classifier

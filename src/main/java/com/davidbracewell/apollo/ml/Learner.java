@@ -1,13 +1,13 @@
 package com.davidbracewell.apollo.ml;
 
 import com.davidbracewell.apollo.ml.classification.Classifier;
-import com.davidbracewell.apollo.ml.clustering.Clustering;
 import com.davidbracewell.apollo.ml.data.Dataset;
-import com.davidbracewell.apollo.ml.regression.Regression;
-import com.davidbracewell.apollo.ml.sequence.Sequence;
-import com.davidbracewell.apollo.ml.sequence.SequenceLabeler;
+import com.davidbracewell.apollo.ml.encoder.EncoderPair;
+import com.davidbracewell.apollo.ml.preprocess.PreprocessorList;
+import com.davidbracewell.conversion.Cast;
 import com.davidbracewell.reflection.BeanMap;
 import com.davidbracewell.reflection.Ignore;
+import lombok.Getter;
 import lombok.NonNull;
 
 import java.io.Serializable;
@@ -23,7 +23,10 @@ import java.util.Map;
 public abstract class Learner<T extends Example, M extends Model> implements Serializable {
 
    private static final long serialVersionUID = 605756060816072642L;
-
+   @Getter
+   private EncoderPair encoderPair;
+   @Getter
+   private PreprocessorList<T> preprocessors;
 
    /**
     * Creates a builder for constructing Classification learners
@@ -34,33 +37,41 @@ public abstract class Learner<T extends Example, M extends Model> implements Ser
       return new LearnerBuilder<>();
    }
 
-   /**
-    * Creates a builder for constructing Regression learners
-    *
-    * @return the learner builder
-    */
-   public static LearnerBuilder<Instance, Regression> regression() {
-      return new LearnerBuilder<>();
-   }
-
-   /**
-    * Creates a builder for constructing Sequence learners
-    *
-    * @return the learner builder
-    */
-   public static LearnerBuilder<Sequence, SequenceLabeler> sequence() {
-      return new LearnerBuilder<>();
-   }
-
-
-   /**
-    * Creates a builder for constructing clusterers
-    *
-    * @return the learner builder
-    */
-   public static <T extends Clustering> LearnerBuilder<Instance, T> clustering() {
-      return new LearnerBuilder<>();
-   }
+//   /**
+//    * Creates a builder for constructing clusterers
+//    *
+//    * @return the learner builder
+//    */
+//   public static <T extends Clustering> LearnerBuilder<Instance, T> clustering() {
+//      return new LearnerBuilder<>();
+//   }
+//
+//   /**
+//    * Creates a builder for constructing Embedding learners
+//    *
+//    * @return the learner builder
+//    */
+//   public static LearnerBuilder<Sequence, Embedding> embedding() {
+//      return new LearnerBuilder<>();
+//   }
+//
+//   /**
+//    * Creates a builder for constructing Regression learners
+//    *
+//    * @return the learner builder
+//    */
+//   public static LearnerBuilder<Instance, Regression> regression() {
+//      return new LearnerBuilder<>();
+//   }
+//
+//   /**
+//    * Creates a builder for constructing Sequence learners
+//    *
+//    * @return the learner builder
+//    */
+//   public static LearnerBuilder<Sequence, SequenceLabeler> sequence() {
+//      return new LearnerBuilder<>();
+//   }
 
    /**
     * Gets the value of the given parameter.
@@ -89,14 +100,21 @@ public abstract class Learner<T extends Example, M extends Model> implements Ser
     * @param parameters the parameters
     */
    @Ignore
-   public void setParameters(@NonNull Map<String, Object> parameters) {
+   public Learner<T, M> setParameters(@NonNull Map<String, Object> parameters) {
       new BeanMap(this).putAll(parameters);
+      return Cast.as(this);
    }
 
    /**
     * Resets any saved state in the learner.
     */
-   public abstract void reset();
+   public final void reset() {
+      this.encoderPair = null;
+      this.preprocessors = null;
+      resetLearnerParameters();
+   }
+
+   protected abstract void resetLearnerParameters();
 
    /**
     * Sets the value of the given parameter.
@@ -105,9 +123,11 @@ public abstract class Learner<T extends Example, M extends Model> implements Ser
     * @param value the value to set the parameter to
     */
    @Ignore
-   public void setParameter(String name, Object value) {
+   public Learner<T, M> setParameter(String name, Object value) {
       new BeanMap(this).put(name, value);
+      return Cast.as(this);
    }
+
 
    /**
     * Trains a model using the given dataset.
@@ -117,6 +137,8 @@ public abstract class Learner<T extends Example, M extends Model> implements Ser
     */
    public M train(@NonNull Dataset<T> dataset) {
       dataset.encode();
+      this.preprocessors = dataset.getPreprocessors();
+      this.encoderPair = dataset.getEncoderPair();
       M model = trainImpl(dataset);
       model.finishTraining();
       return model;
@@ -130,5 +152,8 @@ public abstract class Learner<T extends Example, M extends Model> implements Ser
     */
    protected abstract M trainImpl(Dataset<T> dataset);
 
-
+   public void update(EncoderPair encoderPair, PreprocessorList<T> preprocessors) {
+      this.encoderPair = encoderPair;
+      this.preprocessors = preprocessors;
+   }
 }// END OF Learner

@@ -23,9 +23,12 @@ package com.davidbracewell.apollo.ml.classification;
 
 import com.davidbracewell.apollo.ml.Instance;
 import com.davidbracewell.apollo.ml.data.Dataset;
+import com.davidbracewell.conversion.Cast;
 import com.davidbracewell.conversion.Val;
 import com.davidbracewell.function.SerializableSupplier;
+import lombok.Getter;
 import lombok.NonNull;
+import lombok.Setter;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -40,7 +43,9 @@ public class OneVsRestLearner extends ClassifierLearner {
    private static final long serialVersionUID = 1L;
    private final Map<String, Object> parameters = new HashMap<>();
    private volatile SerializableSupplier<BinaryClassifierLearner> learnerSupplier;
-   private boolean normalize = false;
+   @Getter
+   @Setter
+   private boolean normalize = true;
 
    /**
     * Instantiates a new One vs rest learner.
@@ -77,64 +82,43 @@ public class OneVsRestLearner extends ClassifierLearner {
    }
 
    @Override
-   public void setParameters(@NonNull Map<String, Object> parameters) {
+   public OneVsRestLearner setParameters(@NonNull Map<String, Object> parameters) {
       this.parameters.clear();
       parameters.forEach(this::setParameter);
-   }
-
-   /**
-    * Is the resulting label distribution normalized using softmax to create a probability distribution.
-    *
-    * @return True normalized, False not normalized
-    */
-   public boolean isNormalize() {
-      return normalize;
-   }
-
-   /**
-    * Sets whether or not  the resulting label distribution normalized using softmax to create a probability
-    * distribution..
-    *
-    * @param normalize True normalized, False not normalized
-    */
-   public void setNormalize(boolean normalize) {
-      this.normalize = normalize;
+      return Cast.as(this);
    }
 
    @Override
-   public void reset() {
+   public void resetLearnerParameters() {
 
    }
 
    @Override
-   public void setParameter(String name, Object value) {
+   public OneVsRestLearner setParameter(String name, Object value) {
       if (name.equals("binaryLearner")) {
-         this.learnerSupplier = () -> {
-            final BinaryClassifierLearner learner = Val.of(parameters.get("binaryLearner")).as(
-               BinaryClassifierLearner.class);
-            System.out.println(learner);
-            return learner;
-         };
+         this.learnerSupplier = () -> Val.of(parameters.get("binaryLearner"))
+                                         .as(BinaryClassifierLearner.class);
       }
       if (name.equals("normalize")) {
          this.normalize = Val.of(value).asBooleanValue();
       }
       parameters.put(name, value);
+      return this;
    }
 
    @Override
    protected Classifier trainImpl(Dataset<Instance> dataset) {
-      OneVsRestClassifier model = new OneVsRestClassifier(dataset.getEncoderPair(),
-                                                          dataset.getPreprocessors());
+      OneVsRestClassifier model = new OneVsRestClassifier(this);
       model.classifiers = IntStream.range(0, dataset.getLabelEncoder().size())
                                    .parallel()
                                    .mapToObj(i -> {
                                                 BinaryClassifierLearner bcl = learnerSupplier.get();
                                                 bcl.setParameters(parameters);
                                                 bcl.reset();
+                                                bcl.update(dataset.getEncoderPair(), dataset.getPreprocessors());
                                                 return bcl.trainForLabel(dataset, i);
                                              }
-                                   ).toArray(Classifier[]::new);
+                                            ).toArray(Classifier[]::new);
       model.normalize = normalize;
       return model;
    }

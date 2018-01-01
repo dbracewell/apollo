@@ -1,14 +1,16 @@
 package com.davidbracewell.apollo.ml.clustering;
 
-import com.davidbracewell.apollo.linalg.Vector;
-import com.davidbracewell.apollo.ml.EncoderPair;
+import com.davidbracewell.apollo.linear.NDArray;
 import com.davidbracewell.apollo.ml.Instance;
 import com.davidbracewell.apollo.ml.Learner;
 import com.davidbracewell.apollo.ml.data.Dataset;
+import com.davidbracewell.apollo.ml.encoder.EncoderPair;
+import com.davidbracewell.conversion.Cast;
 import com.davidbracewell.stream.MStream;
 import lombok.Getter;
-import lombok.NonNull;
 import lombok.Setter;
+
+import java.util.Map;
 
 /**
  * <p>Base class for clusterer learners.</p>
@@ -22,29 +24,36 @@ public abstract class Clusterer<T extends Clustering> extends Learner<Instance, 
    @Setter
    private EncoderPair encoderPair;
 
-
-   @Override
-   public T train(@NonNull Dataset<Instance> dataset) {
-      return super.train(dataset);
-   }
-
-   @Override
-   protected T trainImpl(Dataset<Instance> dataset) {
-      this.encoderPair = dataset.getEncoderPair();
-      return cluster(dataset.stream().map(i -> i.toVector(dataset.getEncoderPair())));
-   }
-
    /**
     * Clusters a stream of vectors.
     *
     * @param instances the instances
     * @return the clustering model
     */
-   public abstract T cluster(MStream<Vector> instances);
+   public abstract T cluster(MStream<NDArray> instances);
 
    @Override
-   public void reset() {
+   public void resetLearnerParameters() {
       this.encoderPair = null;
    }
 
+   @Override
+   public Clusterer<T> setParameter(String name, Object value) {
+      return Cast.as(super.setParameter(name, value));
+   }
+
+   @Override
+   public Clusterer<T> setParameters(Map<String, Object> parameters) {
+      return Cast.as(super.setParameters(parameters));
+   }
+
+   @Override
+   public T train(Dataset<Instance> dataset) {
+      return Cast.as(super.train(dataset));
+   }
+
+   protected T trainImpl(Dataset<Instance> dataset) {
+      this.encoderPair = dataset.getEncoderPair();
+      return cluster(dataset.asVectors());
+   }
 }// END OF Clusterer

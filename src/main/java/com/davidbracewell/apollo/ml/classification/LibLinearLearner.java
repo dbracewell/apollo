@@ -21,7 +21,8 @@
 
 package com.davidbracewell.apollo.ml.classification;
 
-import com.davidbracewell.apollo.ml.FeatureVector;
+import com.davidbracewell.apollo.linear.NDArray;
+import com.davidbracewell.apollo.linear.NDArrayFactory;
 import com.davidbracewell.apollo.ml.Instance;
 import com.davidbracewell.apollo.ml.data.Dataset;
 import de.bwaldvogel.liblinear.*;
@@ -54,7 +55,7 @@ public class LibLinearLearner extends ClassifierLearner {
    private boolean verbose = false;
 
    @Override
-   public void reset() {
+   public void resetLearnerParameters() {
 
    }
 
@@ -69,8 +70,7 @@ public class LibLinearLearner extends ClassifierLearner {
 
    @Override
    protected LibLinearModel trainImpl(Dataset<Instance> dataset) {
-      LibLinearModel model = new LibLinearModel(dataset.getEncoderPair(),
-                                                dataset.getPreprocessors());
+      LibLinearModel model = new LibLinearModel(this);
 
       Problem problem = new Problem();
       problem.l = dataset.size();
@@ -82,11 +82,11 @@ public class LibLinearLearner extends ClassifierLearner {
 
       int index = 0;
       for (Iterator<Instance> iitr = dataset.iterator(); iitr.hasNext(); index++) {
-         FeatureVector vector = iitr.next().toVector(dataset.getEncoderPair());
+         NDArray vector = iitr.next().toVector(dataset.getEncoderPair(), NDArrayFactory.SPARSE_DOUBLE);
          problem.x[index] = LibLinearModel.toFeature(vector, biasIndex);
          problem.y[index] = vector.getLabel();
       }
-      problem.n = model.getFeatureEncoder().size() + 1;
+      problem.n = model.numberOfFeatures() + 1;
 
       if (verbose) {
          Linear.enableDebugOutput();

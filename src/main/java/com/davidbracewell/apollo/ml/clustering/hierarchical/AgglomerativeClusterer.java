@@ -21,11 +21,11 @@
 
 package com.davidbracewell.apollo.ml.clustering.hierarchical;
 
-import com.davidbracewell.apollo.affinity.Distance;
-import com.davidbracewell.apollo.affinity.DistanceMeasure;
-import com.davidbracewell.apollo.linalg.Vector;
+import com.davidbracewell.apollo.linear.NDArray;
 import com.davidbracewell.apollo.ml.clustering.Cluster;
 import com.davidbracewell.apollo.ml.clustering.Clusterer;
+import com.davidbracewell.apollo.stat.measure.Distance;
+import com.davidbracewell.apollo.stat.measure.DistanceMeasure;
 import com.davidbracewell.guava.common.collect.Iterables;
 import com.davidbracewell.stream.MStream;
 import com.davidbracewell.tuple.Tuple3;
@@ -49,12 +49,11 @@ import static com.davidbracewell.tuple.Tuples.$;
  */
 public class AgglomerativeClusterer extends Clusterer<HierarchicalClustering> {
    private static final long serialVersionUID = 1L;
+   private final AtomicInteger idGenerator = new AtomicInteger();
    @Getter
    private DistanceMeasure distanceMeasure = Distance.Euclidean;
    @Getter
    private Linkage linkage = Linkage.Single;
-
-   private final AtomicInteger idGenerator = new AtomicInteger();
 
    /**
     * Instantiates a new Agglomerative clusterer.
@@ -74,27 +73,9 @@ public class AgglomerativeClusterer extends Clusterer<HierarchicalClustering> {
       this.linkage = linkage;
    }
 
-   /**
-    * Sets the distance measure to use.
-    *
-    * @param distanceMeasure the distance measure
-    */
-   public void setDistanceMeasure(@NonNull DistanceMeasure distanceMeasure) {
-      this.distanceMeasure = distanceMeasure;
-   }
-
-   /**
-    * Sets the linkage to use.
-    *
-    * @param linkage the linkage
-    */
-   public void setLinkage(@NonNull Linkage linkage) {
-      this.linkage = linkage;
-   }
-
    @Override
-   public HierarchicalClustering cluster(@NonNull MStream<Vector> instanceStream) {
-      List<Vector> instances = instanceStream.collect();
+   public HierarchicalClustering cluster(@NonNull MStream<NDArray> instanceStream) {
+      List<NDArray> instances = instanceStream.collect();
       PriorityQueue<Tuple3<Cluster, Cluster, Double>> priorityQueue = new PriorityQueue<>(Comparator.comparingDouble(
          Tuple3::getV3));
 
@@ -120,10 +101,64 @@ public class AgglomerativeClusterer extends Clusterer<HierarchicalClustering> {
          doTurn(priorityQueue, clusters);
       }
 
-      HierarchicalClustering clustering = new HierarchicalClustering(getEncoderPair(), distanceMeasure);
+      HierarchicalClustering clustering = new HierarchicalClustering(this, distanceMeasure);
       clustering.root = clusters.get(0);
       clustering.linkage = linkage;
       return clustering;
+   }
+
+   private void doTurn(PriorityQueue<Tuple3<Cluster, Cluster, Double>> priorityQueue, List<Cluster> clusters) {
+      Tuple3<Cluster, Cluster, Double> minC = priorityQueue.remove();
+      System.err.println(minC);
+      if (minC != null) {
+         priorityQueue.removeIf(triple -> triple.v2.getId() == minC.v2.getId()
+                                             || triple.v1.getId() == minC.v1.getId()
+                                             || triple.v2.getId() == minC.v1.getId()
+                                             || triple.v1.getId() == minC.v2.getId()
+                               );
+         Cluster cprime = new Cluster();
+         cprime.setId(idGenerator.getAndIncrement());
+         cprime.setLeft(minC.getV1());
+         cprime.setRight(minC.getV2());
+         minC.getV1().setParent(cprime);
+         minC.getV2().setParent(cprime);
+         cprime.setScore(minC.v3);
+         for (NDArray point : Iterables.concat(minC.getV1().getPoints(), minC.getV2().getPoints())) {
+            cprime.addPoint(point);
+         }
+         clusters.remove(minC.getV1());
+         clusters.remove(minC.getV2());
+
+         priorityQueue.addAll(clusters.parallelStream()
+                                      .map(c2 -> $(cprime, c2, linkage.calculate(cprime, c2, distanceMeasure)))
+                                      .collect(Collectors.toList()));
+
+         clusters.add(cprime);
+      }
+
+   }
+
+   private List<Cluster> initDistanceMatrix(List<NDArray> instances, PriorityQueue<Tuple3<Cluster, Cluster, Double>> priorityQueue) {
+      List<Cluster> clusters = new ArrayList<>();
+      for (NDArray item : instances) {
+         Cluster c = new Cluster();
+         c.addPoint(item);
+         c.setId(idGenerator.getAndIncrement());
+         clusters.add(c);
+      }
+
+      priorityQueue.addAll(clusters.parallelStream()
+                                   .flatMap(c1 -> clusters.stream()
+                                                          .filter(c2 -> c2.getId() != c1.getId())
+                                                          .map(c2 -> $(c1, c2)))
+                                   .map(entry -> $(entry.getKey(), entry.getValue(), linkage.calculate(entry.getKey(),
+                                                                                                       entry.getValue(),
+                                                                                                       distanceMeasure)))
+                                   .collect(Collectors.toList()));
+
+      System.err.println(priorityQueue.size());
+
+      return clusters;
    }
 
 //   private void doTurn(LoadingCache<Tuple2<Cluster, Cluster>, Double> distanceMatrix, List<Cluster> clusters) {
@@ -169,63 +204,27 @@ public class AgglomerativeClusterer extends Clusterer<HierarchicalClustering> {
 //
 //   }
 
-   private void doTurn(PriorityQueue<Tuple3<Cluster, Cluster, Double>> priorityQueue, List<Cluster> clusters) {
-      Tuple3<Cluster, Cluster, Double> minC = priorityQueue.remove();
-      System.err.println(minC);
-      if (minC != null) {
-         priorityQueue.removeIf(triple -> triple.v2.getId() == minC.v2.getId()
-                                             || triple.v1.getId() == minC.v1.getId()
-                                             || triple.v2.getId() == minC.v1.getId()
-                                             || triple.v1.getId() == minC.v2.getId()
-                               );
-         Cluster cprime = new Cluster();
-         cprime.setId(idGenerator.getAndIncrement());
-         cprime.setLeft(minC.getV1());
-         cprime.setRight(minC.getV2());
-         minC.getV1().setParent(cprime);
-         minC.getV2().setParent(cprime);
-         cprime.setScore(minC.v3);
-         for (Vector point : Iterables.concat(minC.getV1().getPoints(), minC.getV2().getPoints())) {
-            cprime.addPoint(point);
-         }
-         clusters.remove(minC.getV1());
-         clusters.remove(minC.getV2());
-
-         priorityQueue.addAll(clusters.parallelStream()
-                                      .map(c2 -> $(cprime, c2, linkage.calculate(cprime, c2, distanceMeasure)))
-                                      .collect(Collectors.toList()));
-
-         clusters.add(cprime);
-      }
-
-   }
-
-   private List<Cluster> initDistanceMatrix(List<Vector> instances, PriorityQueue<Tuple3<Cluster, Cluster, Double>> priorityQueue) {
-      List<Cluster> clusters = new ArrayList<>();
-      for (Vector item : instances) {
-         Cluster c = new Cluster();
-         c.addPoint(item);
-         c.setId(idGenerator.getAndIncrement());
-         clusters.add(c);
-      }
-
-      priorityQueue.addAll(clusters.parallelStream()
-                                   .flatMap(c1 -> clusters.stream()
-                                                          .filter(c2 -> c2.getId() != c1.getId())
-                                                          .map(c2 -> $(c1, c2)))
-                                   .map(entry -> $(entry.getKey(), entry.getValue(), linkage.calculate(entry.getKey(),
-                                                                                                       entry.getValue(),
-                                                                                                       distanceMeasure)))
-                                   .collect(Collectors.toList()));
-
-      System.err.println(priorityQueue.size());
-
-      return clusters;
-   }
-
    @Override
-   public void reset() {
-      super.reset();
+   public void resetLearnerParameters() {
+      super.resetLearnerParameters();
       idGenerator.set(0);
+   }
+
+   /**
+    * Sets the distance measure to use.
+    *
+    * @param distanceMeasure the distance measure
+    */
+   public void setDistanceMeasure(@NonNull DistanceMeasure distanceMeasure) {
+      this.distanceMeasure = distanceMeasure;
+   }
+
+   /**
+    * Sets the linkage to use.
+    *
+    * @param linkage the linkage
+    */
+   public void setLinkage(@NonNull Linkage linkage) {
+      this.linkage = linkage;
    }
 }//END OF AgglomerativeClusterer

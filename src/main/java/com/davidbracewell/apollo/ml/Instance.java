@@ -22,14 +22,17 @@
 package com.davidbracewell.apollo.ml;
 
 import com.davidbracewell.Interner;
-import com.davidbracewell.collection.Streams;
+import com.davidbracewell.apollo.linear.NDArray;
+import com.davidbracewell.apollo.linear.NDArrayFactory;
+import com.davidbracewell.apollo.ml.encoder.EncoderPair;
+import com.davidbracewell.apollo.ml.encoder.HashingEncoder;
 import com.davidbracewell.collection.counter.Counter;
 import com.davidbracewell.conversion.Cast;
 import com.davidbracewell.conversion.Val;
 import com.davidbracewell.guava.common.collect.Sets;
-import com.davidbracewell.io.structured.ElementType;
-import com.davidbracewell.io.structured.StructuredReader;
-import com.davidbracewell.io.structured.StructuredWriter;
+import com.davidbracewell.json.JsonReader;
+import com.davidbracewell.json.JsonTokenType;
+import com.davidbracewell.json.JsonWriter;
 import com.davidbracewell.tuple.Tuple2;
 import lombok.*;
 
@@ -118,14 +121,13 @@ public class Instance implements Example, Serializable, Iterable<Feature> {
       return create(featureList, label);
    }
 
-
    /**
     * Creates an instance from a map containing feature name (keys) and their values.
     *
     * @param features the feature map
     * @return the instance
     */
-   public static Instance create(@NonNull Map<String,Double> features) {
+   public static Instance create(@NonNull Map<String, Double> features) {
       return create(features, null);
    }
 
@@ -155,19 +157,19 @@ public class Instance implements Example, Serializable, Iterable<Feature> {
       return new Instance(features, label);
    }
 
-   /**
-    * Convenience method for creating an instance from a vector. Feature names are string representations of the vector
-    * indices.
-    *
-    * @param vector the vector
-    * @return the instance
-    */
-   public static Instance fromVector(@NonNull com.davidbracewell.apollo.linalg.Vector vector) {
-      List<Feature> features = Streams.asStream(vector.nonZeroIterator())
-                                      .map(de -> Feature.real(Integer.toString(de.index), de.value))
-                                      .collect(Collectors.toList());
-      return create(features, vector.getLabel());
-   }
+//   /**
+//    * Convenience method for creating an instance from a vector. Feature names are string representations of the vector
+//    * indices.
+//    *
+//    * @param vector the vector
+//    * @return the instance
+//    */
+//   public static Instance fromVector(@NonNull com.davidbracewell.apollo.linalg.Vector vector) {
+//      List<Feature> features = Streams.asStream(vector.nonZeroIterator())
+//                                      .map(de -> Feature.real(Integer.toString(de.index), de.value))
+//                                      .collect(Collectors.toList());
+//      return create(features, vector.getLabel());
+//   }
 
    @Override
    public List<Instance> asInstances() {
@@ -180,8 +182,23 @@ public class Instance implements Example, Serializable, Iterable<Feature> {
    }
 
    @Override
+   public void fromJson(JsonReader reader) throws IOException {
+      this.label = null;
+      this.features.clear();
+      this.label = reader.nextKeyValue("label").cast();
+      this.weight = reader.nextKeyValue("weight").asDoubleValue(1.0);
+      reader.beginObject();
+      while (reader.peek() != JsonTokenType.END_OBJECT) {
+         Tuple2<String, Val> fv = reader.nextKeyValue();
+         this.features.add(Feature.real(fv.getKey(), fv.getValue().asDoubleValue()));
+      }
+      reader.endObject();
+      this.features.trimToSize();
+   }
+
+   @Override
    public Stream<String> getFeatureSpace() {
-      return features.stream().map(Feature::getName);
+      return features.stream().map(Feature::getFeatureName);
    }
 
    /**
@@ -252,7 +269,11 @@ public class Instance implements Example, Serializable, Iterable<Feature> {
     * @return the value of the given feature or 0 if not in the instance
     */
    public double getValue(@NonNull String feature) {
-      return features.stream().filter(f -> f.getName().equals(feature)).map(Feature::getValue).findFirst().orElse(0d);
+      return features.stream()
+                     .filter(f -> f.getFeatureName().equals(feature))
+                     .map(Feature::getValue)
+                     .findFirst()
+                     .orElse(0d);
    }
 
    /**
@@ -277,7 +298,7 @@ public class Instance implements Example, Serializable, Iterable<Feature> {
    @Override
    public Instance intern(@NonNull Interner<String> interner) {
       return Instance.create(features.stream()
-                                     .map(f -> Feature.real(interner.intern(f.getName()), f.getValue()))
+                                     .map(f -> Feature.real(interner.intern(f.getFeatureName()), f.getValue()))
                                      .collect(Collectors.toList()),
                              label
                             );
@@ -297,21 +318,6 @@ public class Instance implements Example, Serializable, Iterable<Feature> {
       return this.features.iterator();
    }
 
-   @Override
-   public void read(StructuredReader reader) throws IOException {
-      this.label = null;
-      this.features.clear();
-      this.label = reader.nextKeyValue("label").cast();
-      this.weight = reader.nextKeyValue("weight").asDoubleValue(1.0);
-      reader.beginObject();
-      while (reader.peek() != ElementType.END_OBJECT) {
-         Tuple2<String, Val> fv = reader.nextKeyValue();
-         this.features.add(Feature.real(fv.getKey(), fv.getValue().asDoubleValue()));
-      }
-      reader.endObject();
-      this.features.trimToSize();
-   }
-
    /**
     * Gets the features making up the instance as a stream
     *
@@ -321,18 +327,33 @@ public class Instance implements Example, Serializable, Iterable<Feature> {
       return features.stream();
    }
 
+   @Override
+   public void toJson(@NonNull JsonWriter writer) throws IOException {
+      boolean inArray = writer.inArray();
+      if (inArray) writer.beginObject();
+      writer.property("label", label);
+      writer.property("weight", weight);
+      writer.beginObject("features");
+      for (Feature f : features) {
+         writer.property(f.getFeatureName(), f.getValue());
+      }
+      writer.endObject();
+      if (inArray) writer.endObject();
+   }
+
    /**
     * Converts the instance into a feature vector using the given encoder pair to map feature names and labels to double
     * values
     *
     * @param encoderPair the encoder pair
+    * @param factory     The factory to use to create vectors
     * @return the vector
     */
-   public FeatureVector toVector(@NonNull EncoderPair encoderPair) {
-      FeatureVector vector = new FeatureVector(encoderPair);
+   public <T> NDArray toVector(@NonNull EncoderPair encoderPair, @NonNull NDArrayFactory factory) {
+      NDArray vector = factory.zeros(encoderPair.numberOfFeatures());
       boolean isHash = encoderPair.getFeatureEncoder() instanceof HashingEncoder;
       features.forEach(f -> {
-         int fi = (int) encoderPair.encodeFeature(f.getName());
+         int fi = (int) encoderPair.encodeFeature(f.getFeatureName());
          if (fi != -1) {
             if (isHash) {
                vector.set(fi, 1.0);
@@ -341,23 +362,28 @@ public class Instance implements Example, Serializable, Iterable<Feature> {
             }
          }
       });
-      vector.setLabel(encoderPair.encodeLabel(label));
+      if (label instanceof Iterable) {
+         NDArray lblVector = factory.zeros(encoderPair.getLabelEncoder().size());
+         for (Object lbl : Cast.<Iterable<Object>>as(label)) {
+            lblVector.set((int) encoderPair.encodeLabel(lbl), 1.0);
+         }
+         vector.setLabel(lblVector);
+      } else {
+         vector.setLabel(encoderPair.encodeLabel(label));
+      }
       vector.setWeight(weight);
       return vector;
    }
 
-   @Override
-   public void write(@NonNull StructuredWriter writer) throws IOException {
-      boolean inArray = writer.inArray();
-      if (inArray) writer.beginObject();
-      writer.writeKeyValue("label", label);
-      writer.writeKeyValue("weight", weight);
-      writer.beginObject("features");
-      for (Feature f : features) {
-         writer.writeKeyValue(f.getName(), f.getValue());
-      }
-      writer.endObject();
-      if (inArray) writer.endObject();
+   /**
+    * Converts the instance into a feature vector using the given encoder pair to map feature names and labels to double
+    * values
+    *
+    * @param encoderPair the encoder pair
+    * @return the vector
+    */
+   public NDArray toVector(@NonNull EncoderPair encoderPair) {
+      return toVector(encoderPair, NDArrayFactory.SPARSE_DOUBLE);
    }
 
 }//END OF Instance

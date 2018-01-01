@@ -7,9 +7,9 @@ import com.davidbracewell.apollo.ml.preprocess.RestrictedInstancePreprocessor;
 import com.davidbracewell.collection.list.PrimitiveArrayList;
 import com.davidbracewell.conversion.Val;
 import com.davidbracewell.guava.common.base.Preconditions;
-import com.davidbracewell.io.structured.ElementType;
-import com.davidbracewell.io.structured.StructuredReader;
-import com.davidbracewell.io.structured.StructuredWriter;
+import com.davidbracewell.json.JsonReader;
+import com.davidbracewell.json.JsonTokenType;
+import com.davidbracewell.json.JsonWriter;
 import com.davidbracewell.stream.MStream;
 import com.davidbracewell.stream.accumulator.MStatisticsAccumulator;
 import com.davidbracewell.string.StringUtils;
@@ -92,10 +92,10 @@ public class BinTransform extends RestrictedInstancePreprocessor implements Tran
       return featureStream.map(f -> {
          for (int i = 0; i < bins.length; i++) {
             if (f.getValue() < bins[i]) {
-               return Feature.TRUE(f.getName(), Integer.toString(i));
+               return Feature.TRUE(f.getFeatureName(), Integer.toString(i));
             }
          }
-         return Feature.TRUE(f.getName(), Integer.toString(bins.length - 1));
+         return Feature.TRUE(f.getFeatureName(), Integer.toString(bins.length - 1));
       });
    }
 
@@ -109,17 +109,17 @@ public class BinTransform extends RestrictedInstancePreprocessor implements Tran
    }
 
    @Override
-   public void write(@NonNull StructuredWriter writer) throws IOException {
+   public void toJson(@NonNull JsonWriter writer) throws IOException {
       if (!applyToAll()) {
-         writer.writeKeyValue("restriction", getRestriction());
+         writer.property("restriction", getRestriction());
       }
-      writer.writeKeyValue("bins", new PrimitiveArrayList<>(bins, Double.class));
+      writer.property("bins", new PrimitiveArrayList<>(bins, Double.class));
    }
 
    @Override
-   public void read(@NonNull StructuredReader reader) throws IOException {
+   public void fromJson(@NonNull JsonReader reader) throws IOException {
       reset();
-      while (reader.peek() != ElementType.END_OBJECT) {
+      while (reader.peek() != JsonTokenType.END_OBJECT) {
          switch (reader.peekName()) {
             case "restriction":
                setRestriction(reader.nextKeyValue().v2.asString());

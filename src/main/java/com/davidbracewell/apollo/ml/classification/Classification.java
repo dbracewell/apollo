@@ -21,7 +21,9 @@
 
 package com.davidbracewell.apollo.ml.classification;
 
-import com.davidbracewell.apollo.ml.Encoder;
+import com.davidbracewell.apollo.linear.NDArray;
+import com.davidbracewell.apollo.linear.NDArrayFactory;
+import com.davidbracewell.apollo.ml.encoder.Encoder;
 import com.davidbracewell.collection.counter.Counter;
 import com.davidbracewell.collection.counter.Counters;
 import com.davidbracewell.conversion.Cast;
@@ -30,7 +32,9 @@ import lombok.NonNull;
 
 import java.io.Serializable;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Encapsulates the result of a classifier model applied to an instance.
@@ -65,6 +69,23 @@ public class Classification implements Serializable {
    }
 
    /**
+    * Gets the classification result as a counter
+    *
+    * @return the counter of item (label) and value (confidence)
+    */
+   public Counter<String> asCounter() {
+      Counter<String> counter = Counters.newCounter();
+      for (int ci = 0; ci < distribution.length; ci++) {
+         counter.set(labelEncoder.decode(ci).toString(), distribution[ci]);
+      }
+      return counter;
+   }
+
+   public NDArray asVector() {
+      return NDArrayFactory.wrap(distribution);
+   }
+
+   /**
     * Returns the distribution across the possible labels
     *
     * @return a double array of scores, or probabilities, for each of the labels
@@ -72,31 +93,6 @@ public class Classification implements Serializable {
    public double[] distribution() {
       return distribution;
    }
-
-   /**
-    * Gets the String value of the label with best score
-    *
-    * @return the label with the best score
-    */
-   public String getResult() {
-      return labelEncoder.decode(resultIndex).toString();
-   }
-
-   /**
-    * Determines if the result of this classification equals the given gold value
-    *
-    * @param gold the gold value
-    * @return True if the gold value is not null and equals the best result of this classification, False otherwise
-    */
-   public boolean resultIs(Object gold) {
-      return gold != null && getResult().equals(gold.toString());
-   }
-
-   @Override
-   public String toString() {
-      return Arrays.toString(distribution);
-   }
-
 
    /**
     * Gets the confidence of the best result
@@ -122,6 +118,15 @@ public class Classification implements Serializable {
    }
 
    /**
+    * Gets the result of the classification as an encoded label
+    *
+    * @return the encoded result
+    */
+   public double getEncodedResult() {
+      return resultIndex;
+   }
+
+   /**
     * Gets the label for the given label index.
     *
     * @param index the index of the label
@@ -130,16 +135,6 @@ public class Classification implements Serializable {
    public String getLabel(int index) {
       Object lbl = labelEncoder.decode(index);
       return lbl == null ? null : lbl.toString();
-   }
-
-
-   /**
-    * Gets the result of the classification as an encoded label
-    *
-    * @return the encoded result
-    */
-   public double getEncodedResult() {
-      return resultIndex;
    }
 
    /**
@@ -151,18 +146,42 @@ public class Classification implements Serializable {
       return Cast.cast(labelEncoder.values());
    }
 
+   public Set<String> getMultiLabelResult(double threshold) {
+      Set<String> labels = new HashSet<>();
+      for (int i = 0; i < distribution.length; i++) {
+         if (distribution[i] >= threshold) {
+            labels.add(getLabel(i));
+         }
+      }
+      return labels;
+   }
+
+   public Set<String> getMultiLabelResult() {
+      return getMultiLabelResult(0.5);
+   }
 
    /**
-    * Gets the classification result as a counter
+    * Gets the String value of the label with best score
     *
-    * @return the counter of item (label) and value (confidence)
+    * @return the label with the best score
     */
-   public Counter<String> asCounter() {
-      Counter<String> counter = Counters.newCounter();
-      for (int ci = 0; ci < distribution.length; ci++) {
-         counter.set(labelEncoder.decode(ci).toString(), distribution[ci]);
-      }
-      return counter;
+   public String getResult() {
+      return labelEncoder.decode(resultIndex).toString();
+   }
+
+   /**
+    * Determines if the result of this classification equals the given gold value
+    *
+    * @param gold the gold value
+    * @return True if the gold value is not null and equals the best result of this classification, False otherwise
+    */
+   public boolean resultIs(Object gold) {
+      return gold != null && getResult().equals(gold.toString());
+   }
+
+   @Override
+   public String toString() {
+      return Arrays.toString(distribution);
    }
 
 

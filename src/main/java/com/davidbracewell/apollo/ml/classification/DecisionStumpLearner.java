@@ -21,9 +21,9 @@
 
 package com.davidbracewell.apollo.ml.classification;
 
-import com.davidbracewell.apollo.affinity.ContingencyTable;
 import com.davidbracewell.apollo.ml.Instance;
 import com.davidbracewell.apollo.ml.data.Dataset;
+import com.davidbracewell.apollo.stat.measure.ContingencyTable;
 
 import java.util.List;
 
@@ -37,21 +37,21 @@ public class DecisionStumpLearner extends ClassifierLearner {
    private static final long serialVersionUID = 1L;
 
    @Override
-   public void reset() {
+   public void resetLearnerParameters() {
 
    }
 
    @Override
    protected Classifier trainImpl(Dataset<Instance> dataset) {
-      DecisionStump stump = new DecisionStump(dataset.getEncoderPair(), dataset.getPreprocessors());
+      DecisionStump stump = new DecisionStump(this);
 
       int bestIndex = -1;
       double bestSplit = 0;
       double bestScore = Double.POSITIVE_INFINITY;
-      double[] bestLowerDistribution = new double[dataset.getLabelEncoder().size()];
-      double[] bestUpperDistribution = new double[dataset.getLabelEncoder().size()];
-
+      double[] bestLowerDistribution = new double[stump.numberOfLabels()];
+      double[] bestUpperDistribution = new double[stump.numberOfLabels()];
       double[] totalLabelCounts = new double[stump.numberOfLabels()];
+
       for (Instance instance : dataset) {
          totalLabelCounts[(int) stump.encodeLabel(instance.getLabel())]++;
       }

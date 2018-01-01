@@ -1,8 +1,8 @@
 package com.davidbracewell.apollo.ml.data;
 
-import com.davidbracewell.apollo.ml.Encoder;
 import com.davidbracewell.apollo.ml.Example;
-import com.davidbracewell.apollo.ml.LabelEncoder;
+import com.davidbracewell.apollo.ml.encoder.Encoder;
+import com.davidbracewell.apollo.ml.encoder.LabelEncoder;
 import com.davidbracewell.apollo.ml.preprocess.PreprocessorList;
 import com.davidbracewell.conversion.Cast;
 import com.davidbracewell.function.SerializableFunction;
@@ -34,7 +34,7 @@ public class OffHeapDataset<T extends Example> extends Dataset<T> {
    private final AtomicLong id = new AtomicLong();
    private Resource outputResource = Resources.temporaryDirectory();
    private Class<T> clazz;
-   private int size = 0;
+   private int size = -1;
 
    /**
     * Instantiates a new Off heap dataset.
@@ -59,13 +59,12 @@ public class OffHeapDataset<T extends Example> extends Dataset<T> {
       }
       if (binSize <= 1) {
          writeInstancesTo(instances,
-                          outputResource.getChild("part-" + id.incrementAndGet() + ".json").setIsCompressed(true));
+                          outputResource.getChild("part-" + id.incrementAndGet() + ".json"));
       } else {
          instances.mapToPair(i -> Tuples.$((long) Math.floor(Math.random() * binSize), i))
                   .groupByKey()
                   .forEachLocal((key, list) -> {
-                                   Resource r = outputResource.getChild("part-" + id.incrementAndGet() + ".json")
-                                                              .setIsCompressed(true);
+                                   Resource r = outputResource.getChild("part-" + id.incrementAndGet() + ".json");
                                    writeInstancesTo(StreamingContext.local().stream(list), r);
                                 }
                                );
@@ -73,8 +72,34 @@ public class OffHeapDataset<T extends Example> extends Dataset<T> {
    }
 
    @Override
+   public Dataset<T> cache() {
+      InMemoryDataset<T> dd = new InMemoryDataset<>(getFeatureEncoder(), getLabelEncoder(), getPreprocessors());
+      for (T example : this) {
+         dd.add(example);
+      }
+      return dd;
+   }
+
+   @Override
    public void close() {
       outputResource.delete();
+   }
+
+   @Override
+   public Dataset<T> copy() {
+      OffHeapDataset<T> copy = Cast.as(create(getStreamingContext().empty()));
+      for (Resource child : outputResource.getChildren()) {
+         try {
+            copy.outputResource.getChild(child.baseName())
+                               .write(child.readToString());
+         } catch (IOException e) {
+            throw Throwables.propagate(e);
+         }
+      }
+      copy.size = -1;
+      copy.id.set(this.id.longValue());
+      copy.clazz = this.clazz;
+      return copy;
    }
 
    @Override
@@ -109,6 +134,13 @@ public class OffHeapDataset<T extends Example> extends Dataset<T> {
 
    @Override
    public int size() {
+      if( size < 0 ){
+         synchronized (this){
+            if( size < 0 ){
+               size = (int)stream().count();
+            }
+         }
+      }
       return size;
    }
 
@@ -121,31 +153,14 @@ public class OffHeapDataset<T extends Example> extends Dataset<T> {
                                                    .map(function(line -> Cast.as(Example.fromJson(line, clazz)))));
    }
 
-   @Override
-   public Dataset<T> copy() {
-      OffHeapDataset<T> copy = Cast.as(create(getStreamingContext().empty()));
-      for (Resource child : outputResource.getChildren()) {
-         try {
-            copy.outputResource.getChild(child.baseName())
-                               .write(child.readToString());
-         } catch (IOException e) {
-            throw Throwables.propagate(e);
-         }
-      }
-      copy.size = this.size;
-      copy.id.set(this.id.longValue());
-      copy.clazz = this.clazz;
-      return copy;
-   }
-
    private void writeInstancesTo(MStream<T> instances, Resource file) {
+      file.setIsCompressed(true);
       try (BufferedWriter writer = new BufferedWriter(file.writer())) {
          instances.forEach(Unchecked.consumer(ii -> {
             clazz = Cast.as(ii.getClass());
             if (ii.getFeatureSpace().count() > 0) {
-               writer.write(ii.toJson());
-               writer.newLine();
-               size++;
+               writer.write(ii.toJson().trim() + "\n");
+//               size++;
             }
          }));
       } catch (IOException e) {

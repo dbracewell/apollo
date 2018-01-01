@@ -21,9 +21,9 @@
 
 package com.davidbracewell.apollo.ml.sequence;
 
-import com.davidbracewell.apollo.linalg.Vector;
+import com.davidbracewell.apollo.linear.NDArray;
+import com.davidbracewell.apollo.linear.NDArrayFactory;
 import com.davidbracewell.apollo.ml.Feature;
-import com.davidbracewell.apollo.ml.FeatureVector;
 import com.davidbracewell.apollo.ml.Instance;
 import com.davidbracewell.apollo.ml.data.Dataset;
 import com.davidbracewell.collection.Collect;
@@ -44,25 +44,61 @@ public class StructuredPerceptronLearner extends SequenceLabelerLearner {
    private static final long serialVersionUID = 1209076471049751899L;
    private int maxIterations = 10;
    private double tolerance = 0.00001;
-   private Vector[] cWeights;
+   private NDArray[] cWeights;
 
+   /**
+    * Gets max iterations.
+    *
+    * @return the max iterations
+    */
+   public int getMaxIterations() {
+      return maxIterations;
+   }
+
+   /**
+    * Sets max iterations.
+    *
+    * @param maxIterations the max iterations
+    */
+   public void setMaxIterations(int maxIterations) {
+      this.maxIterations = maxIterations;
+   }
+
+   /**
+    * Gets tolerance.
+    *
+    * @return the tolerance
+    */
+   public double getTolerance() {
+      return tolerance;
+   }
+
+   /**
+    * Sets tolerance.
+    *
+    * @param tolerance the tolerance
+    */
+   public void setTolerance(double tolerance) {
+      this.tolerance = tolerance;
+   }
+
+   @Override
+   public void resetLearnerParameters() {
+      cWeights = null;
+   }
 
    @Override
    protected SequenceLabeler trainImpl(Dataset<Sequence> dataset) {
-      StructuredPerceptron model = new StructuredPerceptron(dataset.getLabelEncoder(),
-                                                            dataset.getFeatureEncoder(),
-                                                            dataset.getPreprocessors(),
-                                                            transitionFeatures,
-                                                            getValidator());
+      StructuredPerceptron model = new StructuredPerceptron(this);
       model.setDecoder(getDecoder());
 
       int nC = model.numberOfLabels();
 
-      model.weights = new Vector[nC];
-      cWeights = new Vector[nC];
+      model.weights = new NDArray[nC];
+      cWeights = new NDArray[nC];
       for (int i = 0; i < nC; i++) {
-         model.weights[i] = new FeatureVector(model.getEncoderPair());
-         cWeights[i] = new FeatureVector(model.getEncoderPair());
+         model.weights[i] = NDArrayFactory.SPARSE_FLOAT.zeros(model.numberOfFeatures());
+         cWeights[i] = NDArrayFactory.SPARSE_FLOAT.zeros(model.numberOfFeatures());
       }
 
 
@@ -100,14 +136,14 @@ public class StructuredPerceptronLearner extends SequenceLabelerLearner {
                   int yHat = (int) model.getLabelEncoder().encode(lblResult.getLabel(iterator.getIndex()));
                   if (y != yHat) {
                      for (Feature feature : instance) {
-                        int fid = (int) model.getFeatureEncoder().encode(feature.getName());
+                        int fid = (int) model.getFeatureEncoder().encode(feature.getFeatureName());
                         model.weights[yHat].decrement(fid);
                         model.weights[y].increment(fid);
                         cWeights[yHat].decrement(fid);
                         cWeights[y].increment(fid);
                      }
                      for (String feature : Collect.asIterable(
-                        transitionFeatures.extract(lblResult, iterator.getIndex()))) {
+                        transitionFeatures.extract(lblResult.iterator(sequence, iterator.getIndex())))) {
                         int fid = (int) model.getFeatureEncoder().encode(feature);
                         model.weights[yHat].decrement(fid);
                         cWeights[yHat].decrement(fid);
@@ -144,54 +180,11 @@ public class StructuredPerceptronLearner extends SequenceLabelerLearner {
 
       final double C = c;
       for (int ci = 0; ci < nC; ci++) {
-         Vector v = model.weights[ci];
-         cWeights[ci].forEachSparse(entry -> v.decrement(entry.index, entry.value / C));
+         NDArray v = model.weights[ci];
+         cWeights[ci].forEachSparse(entry -> v.decrement(entry.getIndex(), entry.getValue() / C));
       }
 
       return model;
-   }
-
-   @Override
-   public void reset() {
-      cWeights = null;
-   }
-
-
-   /**
-    * Gets max iterations.
-    *
-    * @return the max iterations
-    */
-   public int getMaxIterations() {
-      return maxIterations;
-   }
-
-   /**
-    * Sets max iterations.
-    *
-    * @param maxIterations the max iterations
-    */
-   public void setMaxIterations(int maxIterations) {
-      this.maxIterations = maxIterations;
-   }
-
-
-   /**
-    * Gets tolerance.
-    *
-    * @return the tolerance
-    */
-   public double getTolerance() {
-      return tolerance;
-   }
-
-   /**
-    * Sets tolerance.
-    *
-    * @param tolerance the tolerance
-    */
-   public void setTolerance(double tolerance) {
-      this.tolerance = tolerance;
    }
 
 

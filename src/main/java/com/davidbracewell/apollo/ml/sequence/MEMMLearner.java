@@ -26,7 +26,6 @@ import com.davidbracewell.apollo.ml.classification.LibLinearLearner;
 import com.davidbracewell.apollo.ml.data.Dataset;
 import com.davidbracewell.conversion.Cast;
 import com.davidbracewell.io.QuietIO;
-import lombok.NonNull;
 
 import java.util.Map;
 
@@ -40,22 +39,8 @@ public class MEMMLearner extends SequenceLabelerLearner {
    private LibLinearLearner learner = new LibLinearLearner();
 
    @Override
-   protected SequenceLabeler trainImpl(Dataset<Sequence> dataset) {
-      MEMM model = new MEMM(dataset.getLabelEncoder(),
-                            dataset.getFeatureEncoder(),
-                            dataset.getPreprocessors().getModelProcessors(),
-                            getTransitionFeatures(),
-                            getValidator()
-      );
-      Dataset<Instance> nd = Dataset.classification()
-                                    .source(dataset.stream().flatMap(s -> s.asInstances().stream()));
-      QuietIO.closeQuietly(dataset);
-      model.model = Cast.as(learner.train(nd));
-      return model;
-   }
-
-   @Override
-   public void reset() {
+   public Object getParameter(String name) {
+      return learner.getParameter(name);
    }
 
    @Override
@@ -64,17 +49,28 @@ public class MEMMLearner extends SequenceLabelerLearner {
    }
 
    @Override
-   public void setParameters(@NonNull Map<String, Object> parameters) {
-      learner.setParameters(parameters);
+   public void resetLearnerParameters() {
    }
 
    @Override
-   public void setParameter(String name, Object value) {
+   public MEMMLearner setParameter(String name, Object value) {
       learner.setParameter(name, value);
+      return this;
    }
 
    @Override
-   public Object getParameter(String name) {
-      return learner.getParameter(name);
+   public MEMMLearner setParameters(Map<String, Object> parameters) {
+      learner.setParameters(parameters);
+      return Cast.as(this);
+   }
+
+   @Override
+   protected SequenceLabeler trainImpl(Dataset<Sequence> dataset) {
+      MEMM model = new MEMM(this);
+      Dataset<Instance> nd = Dataset.classification()
+                                    .source(dataset.stream().flatMap(s -> s.asInstances().stream()));
+      QuietIO.closeQuietly(dataset);
+      model.model = Cast.as(learner.train(nd));
+      return model;
    }
 }// END OF MEMMLearner

@@ -21,11 +21,8 @@
 
 package com.davidbracewell.apollo.ml.sequence;
 
-import com.davidbracewell.apollo.linalg.Vector;
-import com.davidbracewell.apollo.ml.Encoder;
+import com.davidbracewell.apollo.linear.NDArray;
 import com.davidbracewell.apollo.ml.Feature;
-import com.davidbracewell.apollo.ml.LabelEncoder;
-import com.davidbracewell.apollo.ml.preprocess.PreprocessorList;
 import lombok.NonNull;
 
 import java.util.Iterator;
@@ -44,20 +41,16 @@ public class StructuredPerceptron extends SequenceLabeler {
    /**
     * The Weights.
     */
-   Vector[] weights;
+   NDArray[] weights;
 
    /**
     * Instantiates a new Structured perceptron.
     *
-    * @param labelEncoder       the label encoder
-    * @param featureEncoder     the feature encoder
-    * @param preprocessors      the preprocessors
-    * @param transitionFeatures the transition features
-    * @param validator          the validator
+    * @param learner the learner
     */
-   public StructuredPerceptron(@NonNull LabelEncoder labelEncoder, @NonNull Encoder featureEncoder, @NonNull PreprocessorList<Sequence> preprocessors, @NonNull TransitionFeatures transitionFeatures, @NonNull SequenceValidator validator) {
-      super(labelEncoder, featureEncoder, preprocessors, transitionFeatures, validator);
-      this.numberOfClasses = labelEncoder.size();
+   public StructuredPerceptron(@NonNull StructuredPerceptronLearner learner) {
+      super(learner);
+      this.numberOfClasses = getLabelEncoder().size();
    }
 
    @Override
@@ -65,7 +58,7 @@ public class StructuredPerceptron extends SequenceLabeler {
       double[] distribution = new double[numberOfClasses];
       while (observation.hasNext()) {
          Feature feature = observation.next();
-         int index = (int) getFeatureEncoder().encode(feature.getName());
+         int index = (int) getFeatureEncoder().encode(feature.getFeatureName());
          if (index != -1) {
             for (int ci = 0; ci < numberOfClasses; ci++) {
                distribution[ci] += weights[ci].get(index);

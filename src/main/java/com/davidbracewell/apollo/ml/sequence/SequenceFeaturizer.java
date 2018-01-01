@@ -1,8 +1,8 @@
 package com.davidbracewell.apollo.ml.sequence;
 
 import com.davidbracewell.apollo.ml.Feature;
-import com.davidbracewell.apollo.ml.Featurizer;
 import com.davidbracewell.apollo.ml.Instance;
+import com.davidbracewell.apollo.ml.featurizer.Featurizer;
 import com.davidbracewell.cache.CacheProxy;
 import com.davidbracewell.cache.Cached;
 import com.davidbracewell.conversion.Cast;
@@ -20,45 +20,6 @@ import java.util.*;
  */
 public interface SequenceFeaturizer<INPUT> extends Featurizer<Context<INPUT>> {
    long serialVersionUID = 1L;
-   /**
-    * Feature set set.
-    *
-    * @param features the features
-    * @return the set
-    */
-   static Set<Feature> featureSet(Feature... features) {
-      return new HashSet<>(Arrays.asList(features));
-   }
-
-   /**
-    * Of sequence featurizer.
-    *
-    * @param <T>      the type parameter
-    * @param function the function
-    * @return the sequence featurizer
-    */
-   static <T> SequenceFeaturizer<T> of(@NonNull SerializableFunction<Context<T>, ? extends Collection<Feature>> function) {
-      return new SequenceFeaturizer<T>() {
-         private static final long serialVersionUID = 1L;
-
-         @Override
-         @Cached
-         public Set<Feature> apply(Context<T> tContext) {
-            return new HashSet<>(function.apply(tContext));
-         }
-      };
-   }
-
-   @Override
-   default SequenceFeaturizer<INPUT> cache(String cacheName) {
-      return CacheProxy.cache(this, cacheName);
-   }
-
-   @Override
-   default SequenceFeaturizer<INPUT> cache() {
-      return CacheProxy.cache(this);
-   }
-
 
    /**
     * Chain sequence featurizer.
@@ -75,8 +36,8 @@ public interface SequenceFeaturizer<INPUT> extends Featurizer<Context<INPUT>> {
 
          @Override
          @Cached
-         public Set<Feature> apply(Context<T> tContext) {
-            Set<Feature> features = new HashSet<>();
+         public List<Feature> apply(Context<T> tContext) {
+            List<Feature> features = new ArrayList<>();
             extractors.forEach(ex -> features.addAll(ex.apply(Cast.as(tContext))));
             return features;
          }
@@ -84,13 +45,37 @@ public interface SequenceFeaturizer<INPUT> extends Featurizer<Context<INPUT>> {
    }
 
    /**
-    * Extract sequence m stream.
+    * Of sequence featurizer.
     *
-    * @param stream the stream
-    * @return the m stream
+    * @param <T>      the type parameter
+    * @param function the function
+    * @return the sequence featurizer
     */
-   default MStream<Sequence> extractSequence(@NonNull MStream<Context<INPUT>> stream) {
-      return stream.map(this::extractSequence);
+   static <T> SequenceFeaturizer<T> of(@NonNull SerializableFunction<Context<T>, ? extends Collection<Feature>> function) {
+      return new SequenceFeaturizer<T>() {
+         private static final long serialVersionUID = 1L;
+
+         @Override
+         @Cached
+         public List<Feature> apply(Context<T> tContext) {
+            return new ArrayList<>(function.apply(tContext));
+         }
+      };
+   }
+
+   @Override
+   default SequenceFeaturizer<Context<INPUT>> asSequenceFeaturizer() {
+      return Cast.as(this);
+   }
+
+   @Override
+   default SequenceFeaturizer<INPUT> cache() {
+      return CacheProxy.cache(this);
+   }
+
+   @Override
+   default SequenceFeaturizer<INPUT> cache(String cacheName) {
+      return CacheProxy.cache(this, cacheName);
    }
 
    /**
@@ -99,19 +84,24 @@ public interface SequenceFeaturizer<INPUT> extends Featurizer<Context<INPUT>> {
     * @param iterator the iterator
     * @return the sequence
     */
-   default Sequence extractSequence(@NonNull Context<INPUT> iterator) {
+   default Sequence extractSequence(@NonNull Context<? extends INPUT> iterator) {
       ArrayList<Instance> instances = new ArrayList<>();
       while (iterator.hasNext()) {
          iterator.next();
-         instances.add(extractInstance(iterator, iterator.getLabel()));
+         instances.add(extractInstance(Cast.as(iterator), iterator.getLabel()));
       }
       instances.trimToSize();
       return new Sequence(instances);
    }
 
-   @Override
-   default SequenceFeaturizer<Context<INPUT>> asSequenceFeaturizer() {
-      return Cast.as(this);
+   /**
+    * Extract sequence m stream.
+    *
+    * @param stream the stream
+    * @return the m stream
+    */
+   default MStream<Sequence> extractSequence(@NonNull MStream<Context<? extends INPUT>> stream) {
+      return stream.map(this::extractSequence);
    }
 
 }// END OF SequenceFeaturizer

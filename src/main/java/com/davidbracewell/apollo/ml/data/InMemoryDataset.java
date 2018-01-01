@@ -1,9 +1,9 @@
 package com.davidbracewell.apollo.ml.data;
 
 import com.davidbracewell.Interner;
-import com.davidbracewell.apollo.ml.Encoder;
+import com.davidbracewell.apollo.ml.encoder.Encoder;
 import com.davidbracewell.apollo.ml.Example;
-import com.davidbracewell.apollo.ml.LabelEncoder;
+import com.davidbracewell.apollo.ml.encoder.LabelEncoder;
 import com.davidbracewell.apollo.ml.preprocess.PreprocessorList;
 import com.davidbracewell.collection.Collect;
 import com.davidbracewell.conversion.Cast;
@@ -22,8 +22,8 @@ import java.util.*;
  * @author David B. Bracewell
  */
 public class InMemoryDataset<T extends Example> extends Dataset<T> {
-   private static final long serialVersionUID = 1L;
    private static final Interner<String> interner = new Interner<>();
+   private static final long serialVersionUID = 1L;
    private final List<T> instances = new ArrayList<>();
 
    /**

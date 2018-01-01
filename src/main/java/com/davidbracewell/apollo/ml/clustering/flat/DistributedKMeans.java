@@ -1,9 +1,10 @@
 package com.davidbracewell.apollo.ml.clustering.flat;
 
-import com.davidbracewell.apollo.affinity.Distance;
-import com.davidbracewell.apollo.linalg.LabeledVector;
+import com.davidbracewell.apollo.linear.NDArray;
+import com.davidbracewell.apollo.linear.NDArrayFactory;
 import com.davidbracewell.apollo.ml.clustering.Cluster;
 import com.davidbracewell.apollo.ml.clustering.Clusterer;
+import com.davidbracewell.apollo.stat.measure.Distance;
 import com.davidbracewell.collection.list.Lists;
 import com.davidbracewell.stream.MStream;
 import com.davidbracewell.stream.SparkStream;
@@ -55,8 +56,8 @@ public class DistributedKMeans extends Clusterer<FlatClustering> {
    }
 
    @Override
-   public FlatClustering cluster(MStream<com.davidbracewell.apollo.linalg.Vector> instanceStream) {
-      SparkStream<com.davidbracewell.apollo.linalg.Vector> sparkStream = new SparkStream<>(instanceStream);
+   public FlatClustering cluster(MStream<NDArray> instanceStream) {
+      SparkStream<NDArray> sparkStream = new SparkStream<>(instanceStream);
       JavaRDD<Vector> rdd = sparkStream.getRDD().map(v -> (Vector) new DenseVector(v.toArray())).cache();
       JavaRDD<String> labels = sparkStream.getRDD()
                                           .map(o -> {
@@ -81,19 +82,15 @@ public class DistributedKMeans extends Clusterer<FlatClustering> {
          Tuple2<Integer, Iterable<Tuple2<String, Vector>>> tuple = itr.next();
          Cluster cluster = new Cluster();
          int i = tuple._1();
-         cluster.setCentroid(new com.davidbracewell.apollo.linalg.DenseVector(centroids[i].toArray()));
+         cluster.setCentroid(NDArrayFactory.wrap(centroids[i].toArray()));
          if (isKeepPoints()) {
-            tuple._2().forEach(lp -> {
-               LabeledVector dv = new LabeledVector(lp._1(),
-                                                    new com.davidbracewell.apollo.linalg.DenseVector(lp._2().toArray())
-               );
-               cluster.addPoint(dv);
-            });
+            tuple._2().forEach(lp -> cluster.addPoint(
+               NDArrayFactory.wrap(lp._2().toArray()).setLabel(lp._1())));
          }
          clusters.set(i, cluster);
       }
 
-      return new FlatCentroidClustering(getEncoderPair(), Distance.Euclidean, clusters);
+      return new FlatCentroidClustering(this, Distance.Euclidean, clusters);
    }
 
 }// END OF DistributedKMeans
