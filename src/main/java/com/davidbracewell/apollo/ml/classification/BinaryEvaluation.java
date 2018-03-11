@@ -165,6 +165,7 @@ public class BinaryEvaluation implements ClassifierEvaluation {
    @Override
    public void output(PrintStream printStream) {
       TableFormatter tableFormatter = new TableFormatter();
+      tableFormatter.title("Confusion Matrix");
       tableFormatter.header(Arrays.asList("Predicted / Gold", "TRUE", "FALSE", "TOTAL"));
       tableFormatter.content(
          Arrays.asList("TRUE", truePositives(), falsePositives(), (truePositives() + falsePositives())));
@@ -175,7 +176,8 @@ public class BinaryEvaluation implements ClassifierEvaluation {
                        positive + negative));
       tableFormatter.print(printStream);
 
-      tableFormatter = new TableFormatter();
+      tableFormatter.clear();
+      tableFormatter.title("Classification Metrics");
       tableFormatter.header(Arrays.asList("Metric", "Score"));
       tableFormatter.content(Arrays.asList("AUC", auc()));
       tableFormatter.content(Arrays.asList("Accuracy", accuracy()));
